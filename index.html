@@ -1,0 +1,796 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>3D Sentence Embeddings Visualizer</title>
+  <!-- Material Design Web Components -->
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/materialize/1.0.0/css/materialize.min.css" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/materialize/1.0.0/js/materialize.min.js"></script>
+  <!-- Three.js for 3D visualization -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <!-- OrbitControls for camera manipulation -->
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/renderers/CSS2DRenderer.js"></script>
+
+  <!-- Transformers.js for embedding generation -->
+  <!--<script src="https://cdn.jsdelivr.net/npm/@xenova/transformers@2.8.0"></script>-->
+  <!-- UMAP-JS for dimensionality reduction -->
+  <script src="https://cdn.jsdelivr.net/npm/umap-js@1.3.3/lib/umap-js.js"></script>
+
+  <style>
+    body {
+      background-color: #f5f5f5;
+      font-family: 'Roboto', sans-serif;
+      margin: 0;
+      overflow-x: hidden;
+    }
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 20px;
+    }
+    .card {
+      border-radius: 12px;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+      margin-bottom: 20px;
+      padding: 20px;
+    }
+    .card-title {
+      color: #3f51b5;
+    }
+    #visualization {
+      width: 100%;
+      height: 500px;
+      border-radius: 8px;
+      background-color: #ffffff;
+      overflow: hidden;
+      margin: 0 auto;
+      display: block;
+    }
+    .input-field input:focus {
+      border-bottom: 1px solid #3f51b5 !important;
+      box-shadow: 0 1px 0 0 #3f51b5 !important;
+    }
+    .input-field label.active {
+      color: #3f51b5 !important;
+    }
+    .btn-primary {
+      background-color: #3f51b5;
+    }
+    .btn-primary:hover {
+      background-color: #5c6bc0;
+    }
+    .color-legend {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      margin-top: 10px;
+    }
+    .color-item {
+      display: flex;
+      align-items: center;
+      margin: 5px 10px;
+    }
+    .color-box {
+      width: 20px;
+      height: 20px;
+      border-radius: 4px;
+      margin-right: 5px;
+    }
+    .loader {
+      display: none;
+      text-align: center;
+      margin: 20px 0;
+    }
+    .spinner {
+      width: 50px;
+      height: 50px;
+      border: 5px solid #f3f3f3;
+      border-top: 5px solid #3f51b5;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+      margin: 0 auto;
+    }
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+    .tooltip {
+      position: absolute;
+      padding: 10px;
+      background-color: rgba(255, 255, 255, 0.9);
+      border-radius: 6px;
+      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+      pointer-events: none;
+      font-size: 14px;
+      z-index: 10;
+      max-width: 250px;
+      word-wrap: break-word;
+    }
+    .chip {
+      background-color: #e0e0e0;
+      margin: 5px;
+      cursor: pointer;
+    }
+    .added-sentences {
+      margin-top: 10px;
+    }
+    .control-panel {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      z-index: 100;
+      background-color: rgba(255, 255, 255, 0.8);
+      padding: 10px;
+      border-radius: 8px;
+      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+    }
+    
+    .visualization-instructions {
+        text-align: center;
+        margin-top: 30px;
+    }
+    .visualization-container {
+      position: relative;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="row">
+      <div class="col s12">
+        <h3 class="center-align" style="color: #3f51b5;">3D Sentence Embeddings Visualizer</h3>
+        <p class="center-align">Visualize sentence embeddings in 3D space using MiniLM-L6 and UMAP</p>
+      </div>
+    </div>
+
+    <div class="row">
+      <div class="col s12">
+        <div class="card">
+          <div class="card-content">
+            <span class="card-title">Add Sentences</span>
+            <div class="input-field">
+              <input id="sentence-input" type="text" class="validate">
+              <label for="sentence-input">Enter a sentence</label>
+            </div>
+            <div class="right-align">
+              <button id="add-btn" class="btn btn-primary waves-effect waves-light">
+                <i class="material-icons left">add</i> Add Sentence
+              </button>
+            </div>
+            <div class="added-sentences" id="added-sentences">
+              <!-- Added sentences will appear here as chips -->
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="row">
+      <div class="col s12">
+        <div class="card">
+          <div class="card-content">
+            <span class="card-title">Sample Sentences</span>
+            <p>Click on any of these examples to quickly add them to your visualization:</p>
+            <div class="examples">
+              <div class="chip" onclick="addExampleSentence(this.textContent)">The cat sat on the mat.</div>
+              <div class="chip" onclick="addExampleSentence(this.textContent)">Dogs are loyal pets.</div>
+              <div class="chip" onclick="addExampleSentence(this.textContent)">I love programming in JavaScript.</div>
+              <div class="chip" onclick="addExampleSentence(this.textContent)">Machine learning is fascinating.</div>
+              <div class="chip" onclick="addExampleSentence(this.textContent)">The weather is beautiful today.</div>
+              <div class="chip" onclick="addExampleSentence(this.textContent)">Neural networks process data.</div>
+              <div class="chip" onclick="addExampleSentence(this.textContent)">She went to the store.</div>
+              <div class="chip" onclick="addExampleSentence(this.textContent)">Transformers revolutionized NLP.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="row">
+      <div class="col s12">
+        <div class="card">
+          <div class="card-content">
+            <span class="card-title">3D Visualization</span>
+            <div class="loader" id="loader">
+              <div class="spinner"></div>
+              <p>Processing embeddings...</p>
+            </div>
+            <div class="visualization-container">
+              <div id="visualization"></div>
+              <div class="control-panel">
+                <button id="toggle-labels" class="btn-small btn-primary waves-effect waves-light">
+                  <i class="material-icons left">label</i> Toggle Labels
+                </button>
+                <button id="toggle-edges" class="btn-small btn-primary waves-effect waves-light">
+                  <i class="material-icons left">timeline</i> Toggle Edges
+                </button>
+              </div>
+            </div>
+            <div class="color-legend" id="color-legend"></div>
+            <div class="visualization-instructions" id="visualization-instructions">Click and drag to move camera. Scroll to zoom.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Global variables
+    let sentences = [];
+    let embeddingsCache = {};
+    let scene, camera, renderer, controls;
+    let pointObjects = [];
+    let lineObjects = [];
+    let labelObjects = [];
+    let showLabels = true;
+    let showEdges = true;
+    let tooltipDiv;
+    let pipeline;
+    let mousePosition = { x: 0, y: 0 };
+    let raycaster = new THREE.Raycaster();
+    let mouse = new THREE.Vector2();
+    let highlightedPoint = null;
+    let hoveredIndex = -1;
+
+    const colors = [
+      "#3f51b5", "#f44336", "#4CAF50", "#FFC107", "#9C27B0",
+      "#00BCD4", "#FF9800", "#2196F3", "#795548", "#607D8B"
+    ];
+
+    // Initialize the visualization
+    async function init() {
+      try {
+        // Show loader
+        document.getElementById('loader').style.display = 'block';
+
+        // Load the MiniLM-L6 model for feature extraction
+        const { pipeline: transformersPipeline } = await import('https://cdn.jsdelivr.net/npm/@xenova/transformers@2.8.0/dist/transformers.min.js');
+
+        // Create the pipeline
+        pipeline = await transformersPipeline(
+          'feature-extraction',
+          'Xenova/all-MiniLM-L6-v2',
+          {
+            remote: true
+          }
+        );
+
+        console.log('Model loaded successfully');
+
+        // Initialize Three.js for visualization
+        initThreeJS();
+
+        // Create tooltip
+        tooltipDiv = document.createElement('div');
+        tooltipDiv.className = 'tooltip';
+        tooltipDiv.style.opacity = 0;
+        document.body.appendChild(tooltipDiv);
+
+        // Hide loader
+        document.getElementById('loader').style.display = 'none';
+
+        // Add event listeners
+        document.getElementById('add-btn').addEventListener('click', addSentence);
+        document.getElementById('sentence-input').addEventListener('keypress', (e) => {
+          if (e.key === 'Enter') addSentence();
+        });
+        document.getElementById('toggle-labels').addEventListener('click', toggleLabels);
+        document.getElementById('toggle-edges').addEventListener('click', toggleEdges);
+
+        // Add some initial examples
+        addExampleSentence("The cat sat on the mat.");
+        addExampleSentence("Machine learning is fascinating.");
+        addExampleSentence("There is a dog in the backyard.");
+
+      } catch (error) {
+        console.error('Initialization error:', error);
+        document.getElementById('loader').style.display = 'none';
+        alert('Error initializing the model. Please try again later.');
+      }
+    }
+
+    // Initialize Three.js scene
+    function initThreeJS() {
+      const container = document.getElementById('visualization');
+      const width = container.clientWidth;
+      const height = container.clientHeight;
+
+      // Create scene
+      scene = new THREE.Scene();
+      scene.background = new THREE.Color(0xffffff);
+
+      // Create camera
+      camera = new THREE.PerspectiveCamera(75, width / height, 0.1, 1000);
+      camera.position.z = 5;
+
+      // Create renderer
+      renderer = new THREE.WebGLRenderer({ antialias: true });
+      renderer.setSize(width, height);
+      container.innerHTML = '';
+      container.appendChild(renderer.domElement);
+    
+      
+    // Add CSS2DRenderer for labels
+    labelRenderer = new THREE.CSS2DRenderer();
+    labelRenderer.setSize(width, height);
+    labelRenderer.domElement.style.position = 'absolute';
+    labelRenderer.domElement.style.top = '0';
+    labelRenderer.domElement.style.pointerEvents = 'none';
+
+        container.appendChild(labelRenderer.domElement);
+      // Add OrbitControls
+      controls = new THREE.OrbitControls(camera, renderer.domElement);
+      controls.enableDamping = true;
+      controls.dampingFactor = 0.25;
+      controls.screenSpacePanning = false;
+      controls.minDistance = 1;
+      controls.maxDistance = 15;
+      controls.enablePan = true;
+
+      // Add ambient light
+      const ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
+      scene.add(ambientLight);
+
+      // Add directional light
+      const directionalLight = new THREE.DirectionalLight(0xffffff, 0.5);
+      directionalLight.position.set(1, 1, 1);
+      scene.add(directionalLight);
+
+      // Add grid helper for reference
+      //const gridHelper = new THREE.GridHelper(10, 10, 0xd0d0d0, 0xe0e0e0);
+      //gridHelper.position.y = -2;
+      //scene.add(gridHelper);
+
+      
+
+
+      // Add axes helper
+      //const axesHelper = new THREE.AxesHelper(3);
+      //scene.add(axesHelper);
+
+      // Add event listeners for mouse interactions
+      renderer.domElement.addEventListener('mousemove', onMouseMove, false);
+      
+      // Start animation loop
+      animate();
+
+      // Handle window resize
+      window.addEventListener('resize', onWindowResize, false);
+    }
+
+    // Animation loop
+    function animate() {
+      requestAnimationFrame(animate);
+      controls.update();
+      renderer.render(scene, camera);
+      labelRenderer.render(scene, camera); 
+
+    }
+
+    // Handle window resize
+    function onWindowResize() {
+      const container = document.getElementById('visualization');
+      const width = container.clientWidth;
+      const height = container.clientHeight;
+
+      camera.aspect = width / height;
+      camera.updateProjectionMatrix();
+      renderer.setSize(width, height);
+      labelRenderer.setSize(width, height);
+    }
+
+    // Mouse move handler for raycasting
+    function onMouseMove(event) {
+      // Get mouse position relative to the renderer's canvas
+      const rect = renderer.domElement.getBoundingClientRect();
+      mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+      mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+
+      // Update mouse position for tooltip
+      mousePosition.x = event.clientX;
+      mousePosition.y = event.clientY;
+
+      // Perform raycasting
+      raycaster.setFromCamera(mouse, camera);
+      
+      // Check for intersections with point objects
+      const intersects = raycaster.intersectObjects(pointObjects);
+
+      if (intersects.length > 0) {
+        const index = pointObjects.indexOf(intersects[0].object);
+        
+        if (index !== hoveredIndex) {
+          // Reset previous highlighted point
+          if (hoveredIndex !== -1 && pointObjects[hoveredIndex]) {
+            pointObjects[hoveredIndex].scale.set(1, 1, 1);
+          }
+          
+          // Highlight new point
+          hoveredIndex = index;
+          pointObjects[index].scale.set(1.5, 1.5, 1.5);
+          
+          // Show tooltip
+          tooltipDiv.style.opacity = 0.9;
+          tooltipDiv.innerHTML = sentences[index];
+          tooltipDiv.style.left = (mousePosition.x + 10) + 'px';
+          tooltipDiv.style.top = (mousePosition.y - 28) + 'px';
+        }
+      } else {
+        // Reset highlighted point when not hovering over any point
+        if (hoveredIndex !== -1 && pointObjects[hoveredIndex]) {
+          pointObjects[hoveredIndex].scale.set(1, 1, 1);
+          hoveredIndex = -1;
+          
+          // Hide tooltip
+          tooltipDiv.style.opacity = 0;
+        }
+      }
+    }
+
+    // Toggle labels visibility
+    function toggleLabels() {
+      showLabels = !showLabels;
+      for (let label of labelObjects) {
+        label.visible = showLabels;
+      }
+    }
+
+    // Toggle edges visibility
+    function toggleEdges() {
+      showEdges = !showEdges;
+      for (let line of lineObjects) {
+        line.visible = showEdges;
+      }
+    }
+
+    // Add a sentence from input
+    async function addSentence() {
+      const input = document.getElementById('sentence-input');
+      const sentence = input.value.trim();
+
+      if (sentence && !sentences.includes(sentence)) {
+        // Show loader
+        document.getElementById('loader').style.display = 'block';
+
+        // Add to list
+        sentences.push(sentence);
+
+        // Create chip for the sentence
+        const chip = document.createElement('div');
+        chip.className = 'chip';
+        chip.textContent = sentence;
+
+        // Add delete button
+        const deleteIcon = document.createElement('i');
+        deleteIcon.className = 'material-icons';
+        deleteIcon.textContent = 'close';
+        deleteIcon.onclick = (e) => {
+          e.stopPropagation();
+          removeSentence(sentence);
+        };
+
+        chip.appendChild(deleteIcon);
+        document.getElementById('added-sentences').appendChild(chip);
+
+        // Clear input
+        input.value = '';
+        input.focus();
+
+        // Update visualization
+        await updateVisualization();
+
+        // Hide loader
+        document.getElementById('loader').style.display = 'none';
+      } else if (sentences.includes(sentence)) {
+        alert('This sentence is already added.');
+      }
+    }
+
+    // Add example sentence
+    function addExampleSentence(sentence) {
+      document.getElementById('sentence-input').value = sentence;
+      addSentence();
+    }
+
+    // Remove a sentence
+    async function removeSentence(sentence) {
+      const index = sentences.indexOf(sentence);
+      if (index > -1) {
+        sentences.splice(index, 1);
+
+        // Remove chip
+        const chips = document.getElementById('added-sentences').querySelectorAll('.chip');
+        chips.forEach(chip => {
+          if (chip.textContent.includes(sentence)) {
+            chip.remove();
+          }
+        });
+
+        // Update visualization
+        await updateVisualization();
+      }
+    }
+
+    // Get embeddings for a sentence
+    async function getEmbedding(sentence) {
+      if (embeddingsCache[sentence]) {
+        return embeddingsCache[sentence];
+      }
+
+      try {
+        if (!pipeline) {
+          throw new Error('Pipeline not initialized');
+        }
+
+        const result = await pipeline(sentence, { pooling: 'mean' });
+        const embedding = Array.from(result.data);
+        embeddingsCache[sentence] = embedding;
+        return embedding;
+      } catch (error) {
+        console.error('Error generating embedding:', error);
+        return null;
+      }
+    }
+
+    // Update the 3D visualization
+    async function updateVisualization() {
+  if (sentences.length === 0) {
+    // Clear the visualization if no sentences
+    clearVisualization();
+    document.getElementById('color-legend').innerHTML = '';
+    return;
+  }
+
+  // Show loader
+  document.getElementById('loader').style.display = 'block';
+
+  try {
+    // Get embeddings for all sentences
+    const embeddings = [];
+    for (const sentence of sentences) {
+      const embedding = await getEmbedding(sentence);
+      if (embedding) {
+        embeddings.push(embedding);
+      }
+    }
+
+    if (embeddings.length < 1) {
+      throw new Error('No valid embeddings generated');
+    }
+
+    // Use UMAP for 3D dimensionality reduction
+    const umap = new window.UMAP({
+      nNeighbors: Math.min(sentences.length-1, 15),
+      minDist: 0.1,
+      nComponents: 3  // 3D reduction
+    });
+    
+    const reduced = umap.fit(embeddings);
+
+    // Clear previous visualization
+    clearVisualization();
+    
+    // Improved scaling calculation to better utilize 3D space
+    const coords = reduced.map(point => [point[0], point[1], point[2]]);
+    
+    // Calculate min and max for each dimension
+    const mins = [
+      Math.min(...coords.map(p => p[0])),
+      Math.min(...coords.map(p => p[1])),
+      Math.min(...coords.map(p => p[2]))
+    ];
+    
+    const maxs = [
+      Math.max(...coords.map(p => p[0])),
+      Math.max(...coords.map(p => p[1])),
+      Math.max(...coords.map(p => p[2]))
+    ];
+    
+    // Calculate ranges for each dimension
+    const ranges = [
+      maxs[0] - mins[0],
+      maxs[1] - mins[1],
+      maxs[2] - mins[2]
+    ];
+    
+    const maxRange = Math.max(...ranges);
+    
+    // Ensure we don't divide by zero and use a larger scale factor
+    const scale = maxRange > 0 ? 4 / maxRange : 1;
+    
+    // Calculate center offset to center the visualization
+    const center = [
+      (mins[0] + maxs[0]) / 2,
+      (mins[1] + maxs[1]) / 2,
+      (mins[2] + maxs[2]) / 2
+    ];
+
+    // Draw points and connections
+    for (let i = 0; i < reduced.length; i++) {
+      // Apply scaling and centering
+      const x = (reduced[i][0] - center[0]) * scale;
+      const y = (reduced[i][1] - center[1]) * scale;
+      const z = (reduced[i][2] - center[2]) * scale;
+      
+      const color = new THREE.Color(colors[i % colors.length]);
+      
+      // Create sphere for the point
+      const geometry = new THREE.SphereGeometry(0.15, 32, 32);
+      const material = new THREE.MeshLambertMaterial({ color: color });
+      const sphere = new THREE.Mesh(geometry, material);
+      sphere.position.set(x, y, z);
+      scene.add(sphere);
+      pointObjects.push(sphere);
+      
+      // Create text label
+      const labelDiv = document.createElement('div');
+      labelDiv.className = 'label';
+      labelDiv.textContent = sentences[i].length > 20 ? sentences[i].substring(0, 17) + '...' : sentences[i];
+      labelDiv.style.color = colors[i % colors.length];
+      
+      const label = new THREE.CSS2DObject(labelDiv);
+      label.position.set(x, y + 0.3, z);
+      scene.add(label);
+      label.visible = showLabels;
+      labelObjects.push(label);
+      
+      // Draw connections to other points
+      if (i < reduced.length - 1) {
+        for (let j = i + 1; j < reduced.length; j++) {
+          const x2 = (reduced[j][0] - center[0]) * scale;
+          const y2 = (reduced[j][1] - center[1]) * scale;
+          const z2 = (reduced[j][2] - center[2]) * scale;
+          
+          const lineGeometry = new THREE.BufferGeometry().setFromPoints([
+            new THREE.Vector3(x, y, z),
+            new THREE.Vector3(x2, y2, z2)
+          ]);
+          
+          const lineMaterial = new THREE.LineBasicMaterial({
+            color: 0xdddddd,
+            transparent: true,
+            opacity: 0.5
+          });
+          
+          const line = new THREE.Line(lineGeometry, lineMaterial);
+          scene.add(line);
+          line.visible = showEdges;
+          lineObjects.push(line);
+        }
+      }
+    }
+        
+        // Update camera position if needed
+        if (reduced.length === 1) {
+          // If only one point, position camera to look at it
+          camera.position.set(5, 5, 5);
+          controls.target.set(reduced[0][0] * scale, reduced[0][1] * scale, reduced[0][2] * scale);
+        } else {
+          // Reset camera for multiple points
+          camera.position.set(5, 5, 5);
+          controls.target.set(0, 0, 0);
+        }
+        
+        controls.update();
+        
+        // Update color legend
+        updateColorLegend();
+        
+      } catch (error) {
+        console.error('Visualization error:', error);
+        alert('Error generating visualization. Please try again.');
+      }
+      
+      // Hide loader
+      document.getElementById('loader').style.display = 'none';
+    }
+    
+    // Clear all objects from the visualization
+    function clearVisualization() {
+      // Remove all points, lines and labels
+      for (const obj of [...pointObjects, ...lineObjects, ...labelObjects]) {
+        if (obj && obj.parent) {
+          obj.parent.remove(obj);
+          if (obj.geometry) obj.geometry.dispose();
+          if (obj.material) obj.material.dispose();
+        }
+      }
+      
+      pointObjects = [];
+      lineObjects = [];
+      labelObjects = [];
+      hoveredIndex = -1;
+    }
+    
+    // Update color legend
+    function updateColorLegend() {
+      const legend = document.getElementById('color-legend');
+      legend.innerHTML = '';
+      
+      for (let i = 0; i < sentences.length; i++) {
+        const color = colors[i % colors.length];
+        const sentence = sentences[i];
+        
+        const item = document.createElement('div');
+        item.className = 'color-item';
+        
+        const colorBox = document.createElement('div');
+        colorBox.className = 'color-box';
+        colorBox.style.backgroundColor = color;
+        
+        const text = document.createElement('span');
+        text.textContent = sentence.length > 25 ? sentence.substring(0, 22) + '...' : sentence;
+        
+        item.appendChild(colorBox);
+        item.appendChild(text);
+        legend.appendChild(item);
+      }
+    }
+
+    // Initialize the application when DOM is loaded
+    document.addEventListener('DOMContentLoaded', async function() {
+      try {
+        // Check if Three.js is available
+        if (typeof THREE === 'undefined') {
+          throw new Error('Three.js not loaded');
+        }
+        
+        // Check if CSS2DRenderer is available
+        if (typeof THREE.CSS2DRenderer === 'undefined') {
+          // Implement a basic version of CSS2DObject
+          THREE.CSS2DObject = function(element) {
+            THREE.Object3D.call(this);
+            
+            this.element = element || document.createElement('div');
+            this.element.style.position = 'absolute';
+            this.element.style.userSelect = 'none';
+            this.element.style.pointerEvents = 'none';
+            
+            this.addEventListener('removed', function() {
+              if (this.element.parentNode) {
+                this.element.parentNode.removeChild(this.element);
+              }
+            });
+          };
+          
+          THREE.CSS2DObject.prototype = Object.create(THREE.Object3D.prototype);
+          THREE.CSS2DObject.prototype.constructor = THREE.CSS2DObject;
+        }
+        
+        // Load UMAP.js
+        if (typeof window.UMAP === 'undefined') {
+          if (window.umap && window.umap.UMAP) {
+            window.UMAP = window.umap.UMAP;
+          } else {
+            console.warn('UMAP not found, loading from CDN');
+            await new Promise((resolve, reject) => {
+              const script = document.createElement('script');
+              script.src = 'https://cdn.jsdelivr.net/npm/umap-js@1.3.3/lib/umap-js.js';
+              script.onload = () => {
+                if (window.umap && window.umap.UMAP) {
+                  window.UMAP = window.umap.UMAP;
+                  resolve();
+                } else {
+                  reject(new Error('Failed to load UMAP library'));
+                }
+              };
+              script.onerror = () => reject(new Error('Failed to load UMAP library'));
+              document.head.appendChild(script);
+            });
+          }
+        }
+        
+        // Initialize
+        await init();
+        
+      } catch (error) {
+        console.error('Error during initialization:', error);
+        alert('An error occurred during initialization: ' + error.message);
+      }
+    });
+  </script>
+</body>
+</html>
